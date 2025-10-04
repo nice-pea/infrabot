@@ -12,3 +12,7 @@ class Config:
     port = int(os.getenv("PORT", 8080))
     gh_hook_secret = os.getenv("GH_HOOK_SECRET")
     gh_token = os.getenv("GH_TOKEN")
+    gh_repo = os.getenv("GH_REPO")
+    gh_owner = os.getenv("GH_OWNER")
+    gh_workflow_deploy = os.getenv("GH_WORKFLOW_DEPLOY")
+    gh_workflow_delivery = os.getenv("GH_WORKFLOW_DELIVERY")
