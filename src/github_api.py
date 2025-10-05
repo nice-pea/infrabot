@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 
 import httpx
 
@@ -24,3 +25,26 @@ def deploy_workflow_dispatch(ref: str):
             "Authorization": f"Bearer {Config.gh_token}",
         },
     )
+
+
+def get_delivered_version_from_build_and_push(job_id: int) -> str | None:
+    response = httpx.get(
+        url=f"https://api.github.com/repos/{Config.gh_owner}/{Config.gh_repo}/actions/jobs/{job_id}/logs",
+        headers={
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {Config.gh_token}",
+        },
+    )
+    response.raise_for_status()
+
+    logs_text = response.text
+
+    # Ищем с конца логов
+    for line in reversed(logs_text.splitlines()):
+        if "VERSION=" in line:
+            match = re.search(r'VERSION="([^"]+)"', line)
+            if match:
+                return match.group(1)
+
+    return None

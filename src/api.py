@@ -7,7 +7,7 @@ from fastapi import HTTPException, Request, Header
 from src.config import Config
 from src.github_api import verify_signature
 from src.telegram_bot_api import handle_event_and_send_message
-from src.workflow_event import event_from_workflow_run
+from src.workflow_event import event_from_gh_event
 
 router = APIRouter()
 
@@ -30,12 +30,10 @@ async def workflows(
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     try:
-        data = json.loads(data_str)
-        workflow_run = data["workflow_run"]
-        # Создать обрабатываемое событие из workflow_run события
-        event = event_from_workflow_run(workflow_run)
+        # Создать обрабатываемое событие из github события
+        event = event_from_gh_event(json.loads(data_str))
         # Обработать событие
-        if event is not None:
+        if event:
             await handle_event_and_send_message(event)
     except Exception as e:
         logging.debug(e)

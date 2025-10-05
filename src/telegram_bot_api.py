@@ -1,12 +1,23 @@
 import json
 import logging
+from dataclasses import asdict
 
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Bot, Update
+from telegram import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Bot,
+    Update,
+)
 from telegram.ext import Application, CallbackQueryHandler, CallbackContext
 
 from src.config import Config
 from src.github_api import deploy_workflow_dispatch
-from src.workflow_event import WorkflowFailed, DeliverySuccess, WorkflowSuccess
+from src.workflow_event import (
+    DeliveryJobSuccess,
+    Event,
+    WorkflowFailed,
+    WorkflowSuccess,
+)
 
 bot = Bot(token=Config.tg_token)
 
@@ -24,40 +35,27 @@ async def on_deploy_callback(update: Update, context: CallbackContext):
 app = Application.builder().token(Config.tg_token).build()
 app.add_handlers(
     [
-        CallbackQueryHandler(on_deploy_callback, pattern="^/deploy/\w+$"),
+        CallbackQueryHandler(on_deploy_callback, pattern="^/deploy/\\w+$"),
         CallbackQueryHandler(on_unknown_callback),
     ]
 )
 
 
 # Обработать событие и отправить сообщение
-async def handle_event_and_send_message(event: object | WorkflowFailed | WorkflowSuccess | DeliverySuccess):
-    if isinstance(event, WorkflowFailed):
-        workflow_run = event.workflow_run
-    elif isinstance(event, WorkflowSuccess):
-        workflow_run = event.workflow_run
-    elif isinstance(event, DeliverySuccess):
-        workflow_run = event.workflow_run
-        markup = markup_with_deploy_btn(workflow_run)
-    else:
-        logging.info("Unknown event type")
-        return
-
+async def handle_event_and_send_message(event: Event):
     await bot.send_message(
         chat_id=Config.chat_id,
         message_thread_id=Config.topic_id,
-        text=telegram_text_from_workflow_run(workflow_run),
-        reply_markup=,
+        text=telegram_text_from_event(event),
+        reply_markup=markup_with_deploy_btn(event),
+        disable_web_page_preview=True,
+        # link_preview_options=LinkPreviewOptions.is_disabled,
     )
 
 
-def markup_with_deploy_btn(workflow_run) -> InlineKeyboardMarkup | None:
-    # if (
-    #     workflow_run["status"] != "completed"
-    #     or workflow_run["conclusion"] != "success"
-    #     or workflow_run["name"] != "Delivery"
-    # ):
-    #     return None
+def markup_with_deploy_btn(event: Event) -> InlineKeyboardMarkup | None:
+    if not isinstance(event, DeliveryJobSuccess):
+        return None
 
     return InlineKeyboardMarkup(
         [
@@ -66,7 +64,7 @@ def markup_with_deploy_btn(workflow_run) -> InlineKeyboardMarkup | None:
                     text="Deploy",
                     callback_data={
                         "action": "deploy",
-                        "id": workflow_run["id"],
+                        "tag": event.tag,
                     },
                 )
             ]
@@ -74,27 +72,16 @@ def markup_with_deploy_btn(workflow_run) -> InlineKeyboardMarkup | None:
     )
 
 
-def telegram_text_from_workflow_run(workflow_run: dict) -> str:
-    if workflow_run["conclusion"] != "success":
-        return f"неудача :(\nworkflow: :{workflow_run["name"]}\nurl: {workflow_run["html_url"]}"
+def telegram_text_from_event(event: Event) -> str:
+    if isinstance(event, WorkflowFailed) or isinstance(event, WorkflowSuccess):
+        return "\n".join(f"{k} = {v}" for k, v in asdict(event.workflow).items())
+    elif isinstance(event, DeliveryJobSuccess):
+        return (
+            "\n".join(f"{k} = {v}" for k, v in asdict(event.job).items())
+            + f"\n{event.tag}"
+        )
 
-    if workflow_run["name"] == "Deploy":
-        return deploy_text(workflow_run)
-    elif workflow_run["name"] == "Delivery":
-        return delivery_text(workflow_run)
-
-    return json.dumps(
-        {
-            "id": workflow_run["id"],
-            "name": workflow_run["name"],
-            "head_branch": workflow_run["head_branch"],
-            "status": workflow_run["status"],
-            "conclusion": workflow_run["conclusion"],
-            "actor": workflow_run["triggering_actor"]["login"],
-            "event": workflow_run["event"],
-        },
-        indent=4,
-    )
+    return json.dumps(asdict(event), indent=1, ensure_ascii=False)
 
 
 def delivery_text(workflow_run) -> str:
